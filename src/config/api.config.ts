@@ -1,6 +1,13 @@
 const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:8000';
 
 export const API_CONFIG = {
+  workflow: {
+    baseUrl: `${GATEWAY_URL}/api/v1/workflow`,
+    endpoints: {
+      start: '/start',
+      status: '/:sagaId'
+    }
+  },
   imageProcessing: {
     baseUrl: `${GATEWAY_URL}/api/v1/image-processing`,
     endpoints: {
