@@ -23,55 +23,22 @@ const CLUSTER_COLORS = [
   { bg: 'bg-pink-500', text: 'text-pink-700', border: 'border-pink-200', name: 'Pink' },
 ];
 
-export default function ResultsDashboard({ 
-  clusteringResult, 
-  processingResult, 
-  onReset 
+export default function ResultsDashboard({
+  clusteringResult,
+  processingResult,
+  onReset,
+  onExport
 }: ResultsDashboardProps) {
   const [selectedCluster, setSelectedCluster] = useState<number | null>(null);
   const [showStatistics, setShowStatistics] = useState(true);
 
   const downloadDxf = async (exportType: 'detailed' | 'summary' = 'detailed') => {
     try {
-      console.log('🚀 Downloading DXF with session-based approach');
-      
-      const clusterDict = clusteringResult.processed_clusters;
-      const sessionId = processingResult.session_id;
-
-      console.log("Using session_id:", sessionId, "clusterDict:", clusterDict, "exportType:", exportType);
-      
-      if (!sessionId) {
-        throw new Error('No session_id available. Cannot fetch masks from Redis.');
+      if (onExport) {
+        onExport(exportType);
+      } else {
+        console.error('onExport function not provided');
       }
-      
-      const dxfUrl = `${API_CONFIG.dxfExport.baseUrl}${API_CONFIG.dxfExport.endpoints.exportDxf}`;
-      
-      const response = await fetch(dxfUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId,
-          cluster_dict: clusterDict,
-          export_type: exportType
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`DXF export failed: ${response.status} - ${errorText}`);
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `plant-clusters-${exportType}-${Date.now()}.dxf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      
-      console.log('✅ DXF file downloaded successfully');
     } catch (error) {
       console.error('❌ DXF export failed:', error);
       alert(`Failed to export DXF file: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -84,7 +51,7 @@ export default function ResultsDashboard({
       processing_result: processingResult,
       timestamp: new Date().toISOString()
     };
-    
+
     const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -117,14 +84,14 @@ export default function ResultsDashboard({
         >
           Download Image
         </button>
-        
+
         <button
           onClick={downloadResults}
           className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
         >
           Download JSON
         </button>
-        
+
         {/* DXF Export Dropdown */}
         <div className="relative group">
           <button className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center">
@@ -148,7 +115,7 @@ export default function ResultsDashboard({
             </button>
           </div>
         </div>
-        
+
         <button
           onClick={onReset}
           className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -164,7 +131,7 @@ export default function ResultsDashboard({
           <h3 className="text-xl font-semibold mb-4">Clustered Plant Beds</h3>
           {clusteringResult.clustered_image ? (
             <div className="relative">
-              <img 
+              <img
                 src={`data:image/png;base64,${clusteringResult.clustered_image}`}
                 alt="Clustered Plant Beds"
                 className="w-full rounded-lg shadow-md"
@@ -253,7 +220,7 @@ export default function ResultsDashboard({
                     <span className="text-sm font-medium">{clusteringResult.statistics.coverage_percent}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
+                    <div
                       className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                       style={{ width: `${clusteringResult.statistics.coverage_percent}%` }}
                     ></div>
@@ -268,20 +235,20 @@ export default function ResultsDashboard({
       {/* Cluster Details */}
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h3 className="text-xl font-semibold mb-4">Cluster Details</h3>
-        
+
         {clusteringResult.statistics.cluster_details.length > 0 ? (
           <div className="space-y-4">
             {clusteringResult.statistics.cluster_details.map((cluster, index) => {
               const colorScheme = CLUSTER_COLORS[index % CLUSTER_COLORS.length];
               const isSelected = selectedCluster === cluster.cluster_id;
-              
+
               return (
                 <div
                   key={cluster.cluster_id}
                   className={`
                     border-2 rounded-lg p-4 cursor-pointer transition-all
-                    ${isSelected 
-                      ? `${colorScheme.border} bg-opacity-10 ${colorScheme.bg.replace('bg-', 'bg-opacity-10 bg-')}` 
+                    ${isSelected
+                      ? `${colorScheme.border} bg-opacity-10 ${colorScheme.bg.replace('bg-', 'bg-opacity-10 bg-')}`
                       : 'border-gray-200 hover:border-gray-300'
                     }
                   `}
@@ -297,10 +264,10 @@ export default function ResultsDashboard({
                     <div className="flex items-center space-x-4 text-sm text-gray-600">
                       <span>{cluster.bed_count} beds</span>
                       <span>{cluster.total_area.toLocaleString()} px</span>
-                      <svg 
+                      <svg
                         className={`w-5 h-5 transition-transform ${isSelected ? 'rotate-180' : ''}`}
-                        fill="none" 
-                        stroke="currentColor" 
+                        fill="none"
+                        stroke="currentColor"
                         viewBox="0 0 24 24"
                       >
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -335,7 +302,7 @@ export default function ResultsDashboard({
                         <p className="text-sm text-gray-600 mb-2">Bed IDs:</p>
                         <div className="flex flex-wrap gap-1">
                           {cluster.bed_ids.map(bedId => (
-                            <span 
+                            <span
                               key={bedId}
                               className={`px-2 py-1 text-xs rounded ${colorScheme.bg} text-white`}
                             >
@@ -363,7 +330,7 @@ export default function ResultsDashboard({
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Analysis Summary</h3>
             <p className="text-gray-600">
-              Successfully identified {clusteringResult.statistics.num_clusters} distinct plant types 
+              Successfully identified {clusteringResult.statistics.num_clusters} distinct plant types
               covering {clusteringResult.statistics.coverage_percent}% of detected beds
             </p>
           </div>
