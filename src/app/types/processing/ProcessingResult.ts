@@ -1,21 +1,16 @@
-import {BedData} from '../bed/BedData';
-import {EnhancedColors} from '../bed/EnhancedColors'
-import {ProcessingStatistics} from './ProcessingStatistics'
-
+// SketchToCad-Frontend/src/app/types/processing/ProcessingResult.ts
+import { BedData } from '../bed/BedData';
+import { ProcessingStatistics } from './ProcessingStatistics';
 
 export interface ProcessingResult {
   session_id: string;
-  original_image: string; 
-  processed_borders: string;
-  statistics: ProcessingStatistics;
+  saga_id: string;
+  bed_count: number;
   bed_data: BedData[];
-  enhanced_colors: EnhancedColors;
-  enhancement_previews?: {
-    [key: string]: {
-      image: string;
-      title: string;
-      xlabel: string;
-      ylabel: string;
-    };
-  };
+  statistics: ProcessingStatistics;
+  image_shape: number[];
+  processing_time_ms: number;
+  enhanced_colors?: Record<string, number[][]>;
+  enhancement_methods?: string[];
+  enhancement_previews?: Record<string, { image: string }>;
 }

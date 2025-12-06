@@ -1,10 +1,10 @@
+// SketchToCad-Frontend/src/app/page.tsx
 "use client";
 
 import { useState } from "react";
 import { 
   apiService, 
   ProcessingResult,
-  EnhancedColorsResponse,
   SagaStatus
 } from "@/services/api.service";
 import { ClusteringResult } from "./types/clustering/ClusteringResult";
@@ -38,7 +38,6 @@ interface EnhancementSelection {
 export default function Home() {
   const [currentStep, setCurrentStep] = useState<'upload' | 'enhancement' | 'clustering' | 'results'>('upload');
   const [processingResult, setProcessingResult] = useState<ProcessingResult | null>(null);
-  const [enhancementData, setEnhancementData] = useState<EnhancedColorsResponse | null>(null);
   const [enhancementSelection, setEnhancementSelection] = useState<EnhancementSelection | null>(null);
   const [clusteringResult, setClusteringResult] = useState<ClusteringResult | null>(null);
   const [sagaId, setSagaId] = useState<string | null>(null);
@@ -59,10 +58,20 @@ export default function Home() {
       console.log("Starting saga workflow...");
       const result = await apiService.processImage(file, handleSagaProgress);
       
+      // ADD THIS LOG
+      console.log("Enhanced colors received:", {
+        keys: Object.keys(result.enhanced_colors || {}),
+        methods: result.enhancement_methods,
+        sampleLengths: Object.fromEntries(
+          Object.entries(result.enhanced_colors || {}).map(([k, v]) => [k, Array.isArray(v) ? v.length : 'not array'])
+        )
+      });
+      
       console.log("Image processed via saga:", {
         sagaId: result.saga_id,
         sessionId: result.session_id,
-        bedCount: result.bed_count
+        bedCount: result.bed_count,
+        enhancementMethods: result.enhancement_methods
       });
       
       setSagaId(result.saga_id);
@@ -77,36 +86,6 @@ export default function Home() {
     }
   };
 
-  const generateEnhancedColors = async (): Promise<EnhancedColorsResponse | null> => {
-    if (!processingResult) return null;
-    
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      console.log("Creating enhanced colors...");
-      const enhancedColors = await apiService.createEnhancedColors(
-        processingResult.bed_data
-      );
-      
-      console.log("Enhanced colors created:", {
-        methods: enhancedColors.enhancement_methods,
-        bedCount: processingResult.bed_data.length
-      });
-      
-      setEnhancementData(enhancedColors);
-      return enhancedColors;
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message :
-                          (err as any)?.response?.data?.detail || "Failed to create enhanced colors";
-      setError(`Enhancement Error: ${errorMessage}`);
-      console.error("Enhancement error:", err);
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleEnhancementSelection = async (method: string) => {
     if (!processingResult || !sagaId) return;
     
@@ -114,15 +93,9 @@ export default function Home() {
     setError(null);
     
     try {
-      let colors = enhancementData;
-      if (!colors) {
-        colors = await generateEnhancedColors();
-        if (!colors) {
-          throw new Error("Failed to generate enhanced colors");
-        }
-      }
-
-      if (!colors.enhanced_colors[method]) {
+      const enhancedColors = processingResult.enhanced_colors || {};
+      
+      if (!enhancedColors[method]) {
         throw new Error(`Enhancement method '${method}' not available`);
       }
 
@@ -132,20 +105,19 @@ export default function Home() {
       await apiService.submitEnhancementSelection(
         sagaId,
         method,
-        colors.enhanced_colors,
         handleSagaProgress
       );
       
       const originalRgbColors = processingResult.bed_data.map(bed => bed.rgb_median);
-      const rgbColors = colors.enhanced_colors.original || originalRgbColors;
+      const rgbColors = enhancedColors.original || originalRgbColors;
       
       const selection: EnhancementSelection = {
         method: method,
-        plot_data: colors.enhanced_colors[method],
+        plot_data: enhancedColors[method],
         xlabel: 'Component 1',
         ylabel: 'Component 2',
         original_colors: rgbColors,
-        full_enhanced_colors: colors.enhanced_colors
+        full_enhanced_colors: enhancedColors
       };
       
       setEnhancementSelection(selection);
@@ -173,14 +145,12 @@ export default function Home() {
         totalBeds: processingResult.bed_data.length
       });
       
-      // Submit clustering to saga and wait for completion
       const status = await apiService.submitClustering(
         sagaId,
         clustersData,
         handleSagaProgress
       );
       
-      // Get clustering result from saga result_data
       const resultData = status.result_data || {};
       
       const result: ClusteringResult = {
@@ -231,7 +201,6 @@ export default function Home() {
     try {
       console.log("Requesting DXF export via saga:", exportType);
       
-      // Request export via saga
       const status = await apiService.requestExport(
         sagaId,
         exportType,
@@ -241,7 +210,6 @@ export default function Home() {
       const downloadUrl = status.result_data?.download_url;
       
       if (downloadUrl) {
-        // Download the file
         const response = await fetch(downloadUrl);
         const blob = await response.blob();
         
@@ -265,7 +233,6 @@ export default function Home() {
   const handleReset = () => {
     setCurrentStep('upload');
     setProcessingResult(null);
-    setEnhancementData(null);
     setEnhancementSelection(null);
     setClusteringResult(null);
     setSagaId(null);
@@ -395,7 +362,7 @@ export default function Home() {
                 />
               )}
 
-              {currentStep === 'results' && clusteringResult && processingResult && (
+{currentStep === 'results' && clusteringResult && processingResult && (
                 <ResultsDashboard 
                   clusteringResult={clusteringResult}
                   processingResult={processingResult}

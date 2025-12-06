@@ -1,3 +1,4 @@
+// SketchToCad-Frontend/src/services/api.service.ts
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { API_CONFIG } from '../config/api.config';
 
@@ -29,6 +30,8 @@ interface ProcessingResult {
   statistics: ProcessingStatistics;
   image_shape: number[];
   processing_time_ms: number;
+  enhanced_colors?: Record<string, number[][]>;
+  enhancement_methods?: string[];
 }
 
 interface SagaStep {
@@ -56,11 +59,6 @@ interface WorkflowStartResponse {
   session_id: string;
   status: string;
   message: string;
-}
-
-interface EnhancedColorsResponse {
-  enhanced_colors: Record<string, number[][]>;
-  enhancement_methods: string[];
 }
 
 interface ClusterStatistics {
@@ -187,7 +185,7 @@ class ApiService {
   async processImage(file: File, onProgress?: (status: SagaStatus) => void): Promise<ProcessingResult> {
     const workflowResult = await this.startWorkflow(file);
     
-    // Wait until image processing is done and awaiting enhancement
+    // Wait until enhanced colors are generated and ready for selection
     const completedStatus = await this.pollWorkflowStatus(
       workflowResult.saga_id,
       ['awaiting_enhancement_selection'],
@@ -212,22 +210,21 @@ class ApiService {
         smallest_bed_size: 0
       },
       image_shape: resultData.image_shape || [],
-      processing_time_ms: resultData.processing_time_ms || 0
+      processing_time_ms: resultData.processing_time_ms || 0,
+      enhanced_colors: resultData.enhanced_colors || {},
+      enhancement_methods: resultData.enhancement_methods || []
     };
   }
 
   async submitEnhancementSelection(
     sagaId: string,
     enhancementMethod: string,
-    enhancedColors: Record<string, number[][]>,
     onProgress?: (status: SagaStatus) => void
   ): Promise<SagaStatus> {
     await this.gatewayApi.post(`/workflow/${sagaId}/enhancement`, {
-      enhancement_method: enhancementMethod,
-      enhanced_colors: enhancedColors
+      enhancement_method: enhancementMethod
     });
     
-    // Wait until ready for clustering
     return await this.pollWorkflowStatus(
       sagaId,
       ['awaiting_clustering'],
@@ -244,7 +241,6 @@ class ApiService {
       clusters_data: clustersData
     });
     
-    // Wait until clustering is done and awaiting export
     return await this.pollWorkflowStatus(
       sagaId,
       ['awaiting_export'],
@@ -261,21 +257,11 @@ class ApiService {
       export_type: exportType
     });
     
-    // Wait until export is complete
     return await this.pollWorkflowStatus(
       sagaId,
       ['completed'],
       onProgress
     );
-  }
-
-  // Legacy methods for direct API calls (create enhanced colors locally)
-  async createEnhancedColors(bedData: BedData[]): Promise<EnhancedColorsResponse> {
-    const response = await this.gatewayApi.post<EnhancedColorsResponse>(
-      '/direct/clustering/create-enhanced-colors',
-      { bed_data: bedData }
-    );
-    return response.data;
   }
 
   downloadFile(blob: Blob, filename: string) {
@@ -296,7 +282,6 @@ export type {
   BedData,
   ProcessingResult,
   ProcessingStatistics,
-  EnhancedColorsResponse,
   ClusteringResult,
   ClusterStatistics,
   SagaStatus,
