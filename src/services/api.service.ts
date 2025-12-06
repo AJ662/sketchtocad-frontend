@@ -7,6 +7,7 @@ interface BedData {
   rgb_median: number[];
   rgb_mean: number[];
   clean_pixel_count: number;
+  polygons?: number[][][];
 }
 
 interface ProcessingStatistics {
@@ -22,6 +23,7 @@ interface ProcessingStatistics {
 
 interface ProcessingResult {
   session_id: string;
+  saga_id: string;
   bed_count: number;
   bed_data: BedData[];
   statistics: ProcessingStatistics;
@@ -73,6 +75,7 @@ interface ClusterStatistics {
     bed_count: number;
     total_area: number;
     average_area: number;
+    bed_ids: number[];
   }>;
 }
 
@@ -80,16 +83,12 @@ interface ClusteringResult {
   final_labels: number[];
   processed_clusters: Record<string, number[]>;
   statistics: ClusterStatistics;
-}
-
-interface HealthStatus {
-  status: string;
-  service: string;
-  version: string;
+  clustered_image?: string;
 }
 
 class ApiService {
   private gatewayApi: AxiosInstance;
+  private currentSagaId: string | null = null;
 
   constructor() {
     this.gatewayApi = axios.create({
@@ -128,6 +127,10 @@ class ApiService {
     );
   }
 
+  getSagaId(): string | null {
+    return this.currentSagaId;
+  }
+
   async startWorkflow(file: File): Promise<WorkflowStartResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -142,6 +145,7 @@ class ApiService {
       }
     );
     
+    this.currentSagaId = response.data.saga_id;
     return response.data;
   }
 
@@ -152,8 +156,9 @@ class ApiService {
     return response.data;
   }
 
-  async pollWorkflowUntilComplete(
+  async pollWorkflowStatus(
     sagaId: string, 
+    targetStatuses: string[],
     onProgress?: (status: SagaStatus) => void,
     maxAttempts = 120,
     intervalMs = 1000
@@ -165,7 +170,7 @@ class ApiService {
         onProgress(status);
       }
       
-      if (status.status === 'completed') {
+      if (targetStatuses.includes(status.status)) {
         return status;
       }
       
@@ -181,57 +186,94 @@ class ApiService {
 
   async processImage(file: File, onProgress?: (status: SagaStatus) => void): Promise<ProcessingResult> {
     const workflowResult = await this.startWorkflow(file);
-    const completedWorkflow = await this.pollWorkflowUntilComplete(workflowResult.saga_id, onProgress);
+    
+    // Wait until image processing is done and awaiting enhancement
+    const completedStatus = await this.pollWorkflowStatus(
+      workflowResult.saga_id,
+      ['awaiting_enhancement_selection'],
+      onProgress
+    );
+    
+    const resultData = completedStatus.result_data || {};
     
     return {
-      session_id: completedWorkflow.session_id,
-      bed_count: completedWorkflow.result_data?.bed_count || 0,
-      bed_data: completedWorkflow.result_data?.bed_data || [],
-      statistics: {} as ProcessingStatistics,
-      image_shape: [],
-      processing_time_ms: completedWorkflow.total_duration_ms || 0
+      session_id: completedStatus.session_id,
+      saga_id: workflowResult.saga_id,
+      bed_count: resultData.bed_count || 0,
+      bed_data: resultData.bed_data || [],
+      statistics: resultData.statistics || {
+        raw_border_pixels: 0,
+        clean_border_pixels: 0,
+        final_border_pixels: 0,
+        total_beds_found: 0,
+        total_areas_detected: 0,
+        average_bed_size: 0,
+        largest_bed_size: 0,
+        smallest_bed_size: 0
+      },
+      image_shape: resultData.image_shape || [],
+      processing_time_ms: resultData.processing_time_ms || 0
     };
   }
 
+  async submitEnhancementSelection(
+    sagaId: string,
+    enhancementMethod: string,
+    enhancedColors: Record<string, number[][]>,
+    onProgress?: (status: SagaStatus) => void
+  ): Promise<SagaStatus> {
+    await this.gatewayApi.post(`/workflow/${sagaId}/enhancement`, {
+      enhancement_method: enhancementMethod,
+      enhanced_colors: enhancedColors
+    });
+    
+    // Wait until ready for clustering
+    return await this.pollWorkflowStatus(
+      sagaId,
+      ['awaiting_clustering'],
+      onProgress
+    );
+  }
+
+  async submitClustering(
+    sagaId: string,
+    clustersData: Record<string, number[]>,
+    onProgress?: (status: SagaStatus) => void
+  ): Promise<SagaStatus> {
+    await this.gatewayApi.post(`/workflow/${sagaId}/clustering`, {
+      clusters_data: clustersData
+    });
+    
+    // Wait until clustering is done and awaiting export
+    return await this.pollWorkflowStatus(
+      sagaId,
+      ['awaiting_export'],
+      onProgress
+    );
+  }
+
+  async requestExport(
+    sagaId: string,
+    exportType: 'summary' | 'detailed' = 'detailed',
+    onProgress?: (status: SagaStatus) => void
+  ): Promise<SagaStatus> {
+    await this.gatewayApi.post(`/workflow/${sagaId}/export`, {
+      export_type: exportType
+    });
+    
+    // Wait until export is complete
+    return await this.pollWorkflowStatus(
+      sagaId,
+      ['completed'],
+      onProgress
+    );
+  }
+
+  // Legacy methods for direct API calls (create enhanced colors locally)
   async createEnhancedColors(bedData: BedData[]): Promise<EnhancedColorsResponse> {
     const response = await this.gatewayApi.post<EnhancedColorsResponse>(
       '/direct/clustering/create-enhanced-colors',
       { bed_data: bedData }
-    );
-    return response.data;
-  }
-
-  async processClustering(
-    bedData: BedData[],
-    enhancedColors: Record<string, number[][]>,
-    clustersData: Record<string, number[]>
-  ): Promise<ClusteringResult> {
-    const response = await this.gatewayApi.post<ClusteringResult>(
-      '/direct/clustering/process-clustering',
-      {
-        bed_data: bedData,
-        enhanced_colors: enhancedColors,
-        clusters_data: clustersData
-      }
-    );
-    return response.data;
-  }
-
-  async exportDxf(
-    bedData: BedData[],
-    clusterDict: Record<string, string>,
-    exportType: 'summary' | 'detailed' = 'detailed'
-  ): Promise<Blob> {
-    const response = await this.gatewayApi.post(
-      '/direct/dxf-export/export-dxf',
-      {
-        bed_data: bedData,
-        cluster_dict: clusterDict,
-        export_type: exportType
-      },
-      {
-        responseType: 'blob'
-      }
     );
     return response.data;
   }
@@ -246,45 +288,6 @@ class ApiService {
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
   }
-
-  async completeWorkflow(
-    imageFile: File,
-    selectedEnhancementMethod: string,
-    clusters: Record<string, number[]>,
-    exportType: 'summary' | 'detailed' = 'detailed',
-    onProgress?: (status: SagaStatus) => void
-  ): Promise<{
-    processing: ProcessingResult;
-    enhancement: EnhancedColorsResponse;
-    clustering: ClusteringResult;
-    dxfFile: Blob;
-  }> {
-    const processing = await this.processImage(imageFile, onProgress);
-    const enhancement = await this.createEnhancedColors(processing.bed_data);
-    const clustering = await this.processClustering(
-      processing.bed_data,
-      enhancement.enhanced_colors,
-      clusters
-    );
-
-    const clusterDict: Record<string, string> = {};
-    Object.entries(clusters).forEach(([name, bedIds], index) => {
-      clusterDict[index.toString()] = name;
-    });
-
-    const dxfFile = await this.exportDxf(
-      processing.bed_data,
-      clusterDict,
-      exportType
-    );
-
-    return {
-      processing,
-      enhancement,
-      clustering,
-      dxfFile
-    };
-  }
 }
 
 export const apiService = new ApiService();
@@ -296,7 +299,6 @@ export type {
   EnhancedColorsResponse,
   ClusteringResult,
   ClusterStatistics,
-  HealthStatus,
   SagaStatus,
   SagaStep,
   WorkflowStartResponse

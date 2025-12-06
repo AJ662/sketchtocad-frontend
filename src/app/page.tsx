@@ -4,7 +4,8 @@ import { useState } from "react";
 import { 
   apiService, 
   ProcessingResult,
-  EnhancedColorsResponse 
+  EnhancedColorsResponse,
+  SagaStatus
 } from "@/services/api.service";
 import { ClusteringResult } from "./types/clustering/ClusteringResult";
 import ImageUploader from "./components/ImageUploader";
@@ -40,23 +41,31 @@ export default function Home() {
   const [enhancementData, setEnhancementData] = useState<EnhancedColorsResponse | null>(null);
   const [enhancementSelection, setEnhancementSelection] = useState<EnhancementSelection | null>(null);
   const [clusteringResult, setClusteringResult] = useState<ClusteringResult | null>(null);
+  const [sagaId, setSagaId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sagaStatus, setSagaStatus] = useState<string | null>(null);
+
+  const handleSagaProgress = (status: SagaStatus) => {
+    setSagaStatus(status.status);
+    console.log('Saga progress:', status.status, status.current_step);
+  };
 
   const handleImageUpload = async (file: File) => {
     setIsLoading(true);
     setError(null);
     
     try {
-      console.log("Uploading image to Image Processing Service...");
-      const result = await apiService.processImage(file);
+      console.log("Starting saga workflow...");
+      const result = await apiService.processImage(file, handleSagaProgress);
       
-      console.log("Image processed successfully:", {
+      console.log("Image processed via saga:", {
+        sagaId: result.saga_id,
         sessionId: result.session_id,
-        bedCount: result.bed_count,
-        processingTime: result.processing_time_ms
+        bedCount: result.bed_count
       });
       
+      setSagaId(result.saga_id);
       setProcessingResult(result);
       setCurrentStep('enhancement');
     } catch (err: any) {
@@ -92,14 +101,14 @@ export default function Home() {
                           (err as any)?.response?.data?.detail || "Failed to create enhanced colors";
       setError(`Enhancement Error: ${errorMessage}`);
       console.error("Enhancement error:", err);
-      return null;  // Return null instead of throwing
+      return null;
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleEnhancementSelection = async (method: string) => {
-    if (!processingResult) return;
+    if (!processingResult || !sagaId) return;
     
     setIsLoading(true);
     setError(null);
@@ -118,18 +127,18 @@ export default function Home() {
       }
 
       console.log("Enhancement method selected:", method);
-      console.log("Available color methods:", Object.keys(colors.enhanced_colors));
-      console.log("Original colors sample:", colors.enhanced_colors.original?.slice(0, 3));
       
-      // Get original RGB colors from the bed data
+      // Submit enhancement selection to saga
+      await apiService.submitEnhancementSelection(
+        sagaId,
+        method,
+        colors.enhanced_colors,
+        handleSagaProgress
+      );
+      
       const originalRgbColors = processingResult.bed_data.map(bed => bed.rgb_median);
-      
-      // Use original colors from enhanced_colors if available, otherwise from bed_data
       const rgbColors = colors.enhanced_colors.original || originalRgbColors;
       
-      console.log("RGB colors being passed:", rgbColors.slice(0, 3));
-      
-      // Create enhancement selection object
       const selection: EnhancementSelection = {
         method: method,
         plot_data: colors.enhanced_colors[method],
@@ -152,27 +161,55 @@ export default function Home() {
   };
 
   const handleClustering = async (clustersData: Record<string, number[]>) => {
-    if (!processingResult || !enhancementSelection) return;
+    if (!processingResult || !enhancementSelection || !sagaId) return;
     
     setIsLoading(true);
     setError(null);
     
     try {
-      console.log("Processing clustering with user-defined clusters:", {
+      console.log("Submitting clustering to saga:", {
+        sagaId,
         clusterCount: Object.keys(clustersData).length,
         totalBeds: processingResult.bed_data.length
       });
       
-      const result = await apiService.processClustering(
-        processingResult.bed_data,
-        enhancementSelection.full_enhanced_colors,
-        clustersData
+      // Submit clustering to saga and wait for completion
+      const status = await apiService.submitClustering(
+        sagaId,
+        clustersData,
+        handleSagaProgress
       );
       
-      console.log("Clustering completed:", {
-        clusteredBeds: result.statistics.clustered_beds,
-        coverage: result.statistics.coverage_percent
-      });
+      // Get clustering result from saga result_data
+      const resultData = status.result_data || {};
+      
+      const result: ClusteringResult = {
+        final_labels: [],
+        processed_clusters: resultData.processed_clusters || clustersData,
+        statistics: resultData.clustering_statistics || {
+          total_beds: processingResult.bed_data.length,
+          clustered_beds: Object.values(clustersData).flat().length,
+          unclustered_beds: processingResult.bed_data.length - Object.values(clustersData).flat().length,
+          coverage_percent: Math.round((Object.values(clustersData).flat().length / processingResult.bed_data.length) * 100),
+          num_clusters: Object.keys(clustersData).length,
+          cluster_details: Object.entries(clustersData).map(([name, bedIds], index) => ({
+            cluster_id: index,
+            cluster_name: name,
+            bed_count: bedIds.length,
+            total_area: bedIds.reduce((sum, id) => {
+              const bed = processingResult.bed_data.find(b => b.bed_id === id);
+              return sum + (bed?.area || 0);
+            }, 0),
+            average_area: Math.round(bedIds.reduce((sum, id) => {
+              const bed = processingResult.bed_data.find(b => b.bed_id === id);
+              return sum + (bed?.area || 0);
+            }, 0) / bedIds.length),
+            bed_ids: bedIds
+          }))
+        }
+      };
+      
+      console.log("Clustering completed via saga");
       
       setClusteringResult(result);
       setCurrentStep('results');
@@ -186,39 +223,36 @@ export default function Home() {
   };
 
   const handleExport = async (exportType: 'summary' | 'detailed' = 'detailed') => {
-    if (!processingResult || !clusteringResult) return;
+    if (!processingResult || !clusteringResult || !sagaId) return;
     
     setIsLoading(true);
     setError(null);
     
     try {
-      console.log("Exporting to DXF format:", exportType);
+      console.log("Requesting DXF export via saga:", exportType);
       
-      const clusterDict: Record<string, string> = {};
-      Object.entries(clusteringResult.processed_clusters).forEach(([clusterName, bedIds], index) => {
-        clusterDict[index.toString()] = clusterName;
-      });
-      
-      const validation = await apiService.validateExport(
-        processingResult.bed_data,
-        clusterDict
+      // Request export via saga
+      const status = await apiService.requestExport(
+        sagaId,
+        exportType,
+        handleSagaProgress
       );
       
-      if (!validation.can_export) {
-        throw new Error(`Cannot export: ${validation.messages.join(', ')}`);
+      const downloadUrl = status.result_data?.download_url;
+      
+      if (downloadUrl) {
+        // Download the file
+        const response = await fetch(downloadUrl);
+        const blob = await response.blob();
+        
+        const timestamp = new Date().getTime();
+        const filename = `plant_clusters_${exportType}_${timestamp}.dxf`;
+        apiService.downloadFile(blob, filename);
+        
+        console.log("DXF export successful:", filename);
+      } else {
+        throw new Error("No download URL in export result");
       }
-      
-      const dxfBlob = await apiService.exportDxf(
-        processingResult.bed_data,
-        clusterDict,
-        exportType
-      );
-      
-      const timestamp = new Date().getTime();
-      const filename = `plant_clusters_${exportType}_${timestamp}.dxf`;
-      apiService.downloadFile(dxfBlob, filename);
-      
-      console.log("DXF export successful:", filename);
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || err.message || "Failed to export DXF";
       setError(`Export Error: ${errorMessage}`);
@@ -234,6 +268,8 @@ export default function Home() {
     setEnhancementData(null);
     setEnhancementSelection(null);
     setClusteringResult(null);
+    setSagaId(null);
+    setSagaStatus(null);
     setError(null);
   };
 
@@ -262,6 +298,11 @@ export default function Home() {
               Upload an image, choose color enhancement method, draw polygons to cluster similar plants, 
               and analyze the results with detailed statistics.
             </p>
+            {sagaId && (
+              <p className="text-sm text-gray-500 mt-2">
+                Saga ID: {sagaId} | Status: {sagaStatus}
+              </p>
+            )}
           </div>
 
           <div className="flex justify-center mb-8">
@@ -325,8 +366,8 @@ export default function Home() {
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
               <span className="ml-3 text-lg text-gray-600">
                 {currentStep === 'upload' ? 'Processing image...' : 
-                 currentStep === 'enhancement' ? 'Generating enhancements...' : 
-                 currentStep === 'clustering' ? 'Analyzing clusters...' :
+                 currentStep === 'enhancement' ? 'Submitting enhancement...' : 
+                 currentStep === 'clustering' ? 'Processing clusters...' :
                  'Exporting...'}
               </span>
             </div>
