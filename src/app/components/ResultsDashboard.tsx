@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from 'react';
-import { generateDxfContent } from '../../utils/dxfGenerator';
 import { ClusteringResult } from '../types/clustering/ClusteringResult';
 import { ProcessingResult } from '../types/processing/ProcessingResult';
 import API_CONFIG from '@/config/api.config';
@@ -32,38 +31,6 @@ export default function ResultsDashboard({
 }: ResultsDashboardProps) {
   const [selectedCluster, setSelectedCluster] = useState<number | null>(null);
   const [showStatistics, setShowStatistics] = useState(true);
-
-  const handleDownloadDxf = async (type: 'detailed' | 'summary') => {
-    // Client-side export
-    try {
-      if (!clusteringResult || !processingResult) {
-        console.error('Clustering or processing results are missing for DXF export.');
-        return;
-      }
-
-      const content = generateDxfContent(
-        processingResult.bed_data,
-        clusteringResult.processed_clusters,
-        { exportType: type }
-      );
-
-      const blob = new Blob([content], { type: 'application/dxf' });
-      const filename = `plant_clusters_${type}.dxf`;
-
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-    } catch (error) {
-      console.error('❌ DXF export failed:', error);
-      alert(`Failed to export DXF file: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
 
   const downloadResults = () => {
     const results = {
@@ -111,30 +78,6 @@ export default function ResultsDashboard({
         >
           Download JSON
         </button>
-
-        {/* DXF Export Dropdown */}
-        <div className="relative group">
-          <button className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors flex items-center">
-            Download DXF
-            <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 invisible group-hover:visible z-10">
-            <button
-              onClick={() => handleDownloadDxf('detailed')}
-              className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-t-lg"
-            >
-              Detailed DXF (All Polygons)
-            </button>
-            <button
-              onClick={() => handleDownloadDxf('summary')}
-              className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-b-lg"
-            >
-              Summary DXF (Centroids)
-            </button>
-          </div>
-        </div>
 
         <button
           onClick={onReset}

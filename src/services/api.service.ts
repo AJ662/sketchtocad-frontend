@@ -91,7 +91,7 @@ class ApiService {
   constructor() {
     this.gatewayApi = axios.create({
       baseURL: API_CONFIG.workflow.baseUrl.replace('/workflow', ''),
-      headers: { 
+      headers: {
         'Content-Type': 'application/json'
       },
       timeout: 120000
@@ -132,17 +132,17 @@ class ApiService {
   async startWorkflow(file: File): Promise<WorkflowStartResponse> {
     const formData = new FormData();
     formData.append('file', file);
-    
+
     const response = await this.gatewayApi.post<WorkflowStartResponse>(
       '/workflow/start',
       formData,
       {
-        headers: { 
-          'Content-Type': 'multipart/form-data' 
+        headers: {
+          'Content-Type': 'multipart/form-data'
         }
       }
     );
-    
+
     this.currentSagaId = response.data.saga_id;
     return response.data;
   }
@@ -155,7 +155,7 @@ class ApiService {
   }
 
   async pollWorkflowStatus(
-    sagaId: string, 
+    sagaId: string,
     targetStatuses: string[],
     onProgress?: (status: SagaStatus) => void,
     maxAttempts = 120,
@@ -163,37 +163,37 @@ class ApiService {
   ): Promise<SagaStatus> {
     for (let i = 0; i < maxAttempts; i++) {
       const status = await this.getWorkflowStatus(sagaId);
-      
+
       if (onProgress) {
         onProgress(status);
       }
-      
+
       if (targetStatuses.includes(status.status)) {
         return status;
       }
-      
+
       if (status.status === 'failed' || status.status === 'compensated') {
         throw new Error(`Workflow failed: ${status.error_message || 'Unknown error'}`);
       }
-      
+
       await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
-    
+
     throw new Error('Workflow timeout - exceeded maximum wait time');
   }
 
   async processImage(file: File, onProgress?: (status: SagaStatus) => void): Promise<ProcessingResult> {
     const workflowResult = await this.startWorkflow(file);
-    
+
     // Wait until enhanced colors are generated and ready for selection
     const completedStatus = await this.pollWorkflowStatus(
       workflowResult.saga_id,
       ['awaiting_enhancement_selection'],
       onProgress
     );
-    
+
     const resultData = completedStatus.result_data || {};
-    
+
     return {
       session_id: completedStatus.session_id,
       saga_id: workflowResult.saga_id,
@@ -224,7 +224,7 @@ class ApiService {
     await this.gatewayApi.post(`/workflow/${sagaId}/enhancement`, {
       enhancement_method: enhancementMethod
     });
-    
+
     return await this.pollWorkflowStatus(
       sagaId,
       ['awaiting_clustering'],
@@ -240,10 +240,10 @@ class ApiService {
     await this.gatewayApi.post(`/workflow/${sagaId}/clustering`, {
       clusters_data: clustersData
     });
-    
+
     return await this.pollWorkflowStatus(
       sagaId,
-      ['awaiting_export'],
+      ['completed'],  // Changed from 'awaiting_export' since export is now automatic
       onProgress
     );
   }
@@ -256,7 +256,7 @@ class ApiService {
     await this.gatewayApi.post(`/workflow/${sagaId}/export`, {
       export_type: exportType
     });
-    
+
     return await this.pollWorkflowStatus(
       sagaId,
       ['completed'],

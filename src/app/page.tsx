@@ -1,7 +1,7 @@
 // SketchToCad-Frontend/src/app/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from 'react';
 import {
   apiService,
   ProcessingResult,
@@ -11,6 +11,9 @@ import { ClusteringResult } from "./types/clustering/ClusteringResult";
 import ImageUploader from "./components/ImageUploader";
 import ResultsDashboard from "./components/ResultsDashboard";
 import EnhancementSelector from "./components/EnhancementSelector";
+import ProcessingStatus from './components/ProcessingStatus';
+import ManualClustering from './components/ManualClustering';
+import API_CONFIG from '@/config/api.config';
 import dynamic from "next/dynamic";
 
 const ClusteringCanvas = dynamic(
@@ -183,6 +186,39 @@ export default function Home() {
 
       setClusteringResult(result);
       setCurrentStep('results');
+
+      // Auto-download DXF when saga completes
+      if (status.status === 'completed' && sagaId) {
+        console.log("Saga completed, auto-downloading DXF...");
+        try {
+          // Use API Gateway base URL (port 8000) not Next.js server (port 3000)
+          const downloadUrl = `${API_CONFIG.workflow.baseUrl.replace('/workflow', '')}/workflow/${sagaId}/download`;
+          const response = await fetch(downloadUrl);
+
+          if (response.ok) {
+            const blob = await response.blob();
+            const timestamp = new Date().getTime();
+            const filename = `plant_clusters_${timestamp}.dxf`;
+
+            // Trigger browser download
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            console.log("DXF auto-download successful:", filename);
+          } else {
+            console.warn("DXF not ready yet, skipping auto-download");
+          }
+        } catch (downloadErr) {
+          console.error("Auto-download failed (non-blocking):", downloadErr);
+          // Don't block the UI if download fails
+        }
+      }
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || err.message || "Failed to process clustering";
       setError(`Clustering Error: ${errorMessage}`);
