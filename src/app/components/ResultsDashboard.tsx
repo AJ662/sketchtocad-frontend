@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from 'react';
+import { generateDxfContent } from '../../utils/dxfGenerator';
 import { ClusteringResult } from '../types/clustering/ClusteringResult';
 import { ProcessingResult } from '../types/processing/ProcessingResult';
 import API_CONFIG from '@/config/api.config';
@@ -32,13 +33,32 @@ export default function ResultsDashboard({
   const [selectedCluster, setSelectedCluster] = useState<number | null>(null);
   const [showStatistics, setShowStatistics] = useState(true);
 
-  const downloadDxf = async (exportType: 'detailed' | 'summary' = 'detailed') => {
+  const handleDownloadDxf = async (type: 'detailed' | 'summary') => {
+    // Client-side export
     try {
-      if (onExport) {
-        onExport(exportType);
-      } else {
-        console.error('onExport function not provided');
+      if (!clusteringResult || !processingResult) {
+        console.error('Clustering or processing results are missing for DXF export.');
+        return;
       }
+
+      const content = generateDxfContent(
+        processingResult.bed_data,
+        clusteringResult.processed_clusters,
+        { exportType: type }
+      );
+
+      const blob = new Blob([content], { type: 'application/dxf' });
+      const filename = `plant_clusters_${type}.dxf`;
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
     } catch (error) {
       console.error('❌ DXF export failed:', error);
       alert(`Failed to export DXF file: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -102,13 +122,13 @@ export default function ResultsDashboard({
           </button>
           <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 invisible group-hover:visible z-10">
             <button
-              onClick={() => downloadDxf('detailed')}
+              onClick={() => handleDownloadDxf('detailed')}
               className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-t-lg"
             >
               Detailed DXF (All Polygons)
             </button>
             <button
-              onClick={() => downloadDxf('summary')}
+              onClick={() => handleDownloadDxf('summary')}
               className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-b-lg"
             >
               Summary DXF (Centroids)

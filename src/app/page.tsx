@@ -2,8 +2,8 @@
 "use client";
 
 import { useState } from "react";
-import { 
-  apiService, 
+import {
+  apiService,
   ProcessingResult,
   SagaStatus
 } from "@/services/api.service";
@@ -15,7 +15,7 @@ import dynamic from "next/dynamic";
 
 const ClusteringCanvas = dynamic(
   () => import("./components/ClusteringCanvas"),
-  { 
+  {
     ssr: false,
     loading: () => (
       <div className="flex justify-center items-center py-12">
@@ -53,11 +53,11 @@ export default function Home() {
   const handleImageUpload = async (file: File) => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
       console.log("Starting saga workflow...");
       const result = await apiService.processImage(file, handleSagaProgress);
-      
+
       // ADD THIS LOG
       console.log("Enhanced colors received:", {
         keys: Object.keys(result.enhanced_colors || {}),
@@ -66,14 +66,14 @@ export default function Home() {
           Object.entries(result.enhanced_colors || {}).map(([k, v]) => [k, Array.isArray(v) ? v.length : 'not array'])
         )
       });
-      
+
       console.log("Image processed via saga:", {
         sagaId: result.saga_id,
         sessionId: result.session_id,
         bedCount: result.bed_count,
         enhancementMethods: result.enhancement_methods
       });
-      
+
       setSagaId(result.saga_id);
       setProcessingResult(result);
       setCurrentStep('enhancement');
@@ -88,29 +88,29 @@ export default function Home() {
 
   const handleEnhancementSelection = async (method: string) => {
     if (!processingResult || !sagaId) return;
-    
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const enhancedColors = processingResult.enhanced_colors || {};
-      
+
       if (!enhancedColors[method]) {
         throw new Error(`Enhancement method '${method}' not available`);
       }
 
       console.log("Enhancement method selected:", method);
-      
+
       // Submit enhancement selection to saga
       await apiService.submitEnhancementSelection(
         sagaId,
         method,
         handleSagaProgress
       );
-      
+
       const originalRgbColors = processingResult.bed_data.map(bed => bed.rgb_median);
       const rgbColors = enhancedColors.original || originalRgbColors;
-      
+
       const selection: EnhancementSelection = {
         method: method,
         plot_data: enhancedColors[method],
@@ -119,12 +119,12 @@ export default function Home() {
         original_colors: rgbColors,
         full_enhanced_colors: enhancedColors
       };
-      
+
       setEnhancementSelection(selection);
       setCurrentStep('clustering');
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message :
-                          (err as any)?.response?.data?.detail || "Failed to select enhancement method";
+        (err as any)?.response?.data?.detail || "Failed to select enhancement method";
       setError(`Enhancement Selection Error: ${errorMessage}`);
       console.error("Enhancement selection error:", err);
     } finally {
@@ -134,25 +134,25 @@ export default function Home() {
 
   const handleClustering = async (clustersData: Record<string, number[]>) => {
     if (!processingResult || !enhancementSelection || !sagaId) return;
-    
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
       console.log("Submitting clustering to saga:", {
         sagaId,
         clusterCount: Object.keys(clustersData).length,
         totalBeds: processingResult.bed_data.length
       });
-      
+
       const status = await apiService.submitClustering(
         sagaId,
         clustersData,
         handleSagaProgress
       );
-      
+
       const resultData = status.result_data || {};
-      
+
       const result: ClusteringResult = {
         final_labels: [],
         processed_clusters: resultData.processed_clusters || clustersData,
@@ -178,9 +178,9 @@ export default function Home() {
           }))
         }
       };
-      
+
       console.log("Clustering completed via saga");
-      
+
       setClusteringResult(result);
       setCurrentStep('results');
     } catch (err: any) {
@@ -194,29 +194,29 @@ export default function Home() {
 
   const handleExport = async (exportType: 'summary' | 'detailed' = 'detailed') => {
     if (!processingResult || !clusteringResult || !sagaId) return;
-    
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
       console.log("Requesting DXF export via saga:", exportType);
-      
+
       const status = await apiService.requestExport(
         sagaId,
         exportType,
         handleSagaProgress
       );
-      
+
       const downloadUrl = status.result_data?.download_url;
-      
+
       if (downloadUrl) {
         const response = await fetch(downloadUrl);
         const blob = await response.blob();
-        
+
         const timestamp = new Date().getTime();
         const filename = `plant_clusters_${exportType}_${timestamp}.dxf`;
         apiService.downloadFile(blob, filename);
-        
+
         console.log("DXF export successful:", filename);
       } else {
         throw new Error("No download URL in export result");
@@ -262,7 +262,7 @@ export default function Home() {
               Plant Bed Clustering Tool
             </h1>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Upload an image, choose color enhancement method, draw polygons to cluster similar plants, 
+              Upload an image, choose color enhancement method, draw polygons to cluster similar plants,
               and analyze the results with detailed statistics.
             </p>
             {sagaId && (
@@ -274,30 +274,30 @@ export default function Home() {
 
           <div className="flex justify-center mb-8">
             <div className="flex items-center space-x-4">
-              <StepIndicator 
-                step={1} 
-                title="Upload Image" 
+              <StepIndicator
+                step={1}
+                title="Upload Image"
                 isActive={currentStep === 'upload'}
                 isCompleted={processingResult !== null}
               />
               <div className="w-8 h-0.5 bg-gray-300"></div>
-              <StepIndicator 
-                step={2} 
-                title="Color Enhancement" 
+              <StepIndicator
+                step={2}
+                title="Color Enhancement"
                 isActive={currentStep === 'enhancement'}
                 isCompleted={enhancementSelection !== null}
               />
               <div className="w-8 h-0.5 bg-gray-300"></div>
-              <StepIndicator 
-                step={3} 
-                title="Manual Clustering" 
+              <StepIndicator
+                step={3}
+                title="Manual Clustering"
                 isActive={currentStep === 'clustering'}
                 isCompleted={clusteringResult !== null}
               />
               <div className="w-8 h-0.5 bg-gray-300"></div>
-              <StepIndicator 
-                step={4} 
-                title="Results" 
+              <StepIndicator
+                step={4}
+                title="Results"
                 isActive={currentStep === 'results'}
                 isCompleted={false}
               />
@@ -332,10 +332,10 @@ export default function Home() {
             <div className="flex justify-center items-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
               <span className="ml-3 text-lg text-gray-600">
-                {currentStep === 'upload' ? 'Processing image...' : 
-                 currentStep === 'enhancement' ? 'Submitting enhancement...' : 
-                 currentStep === 'clustering' ? 'Processing clusters...' :
-                 'Exporting...'}
+                {currentStep === 'upload' ? 'Processing image...' :
+                  currentStep === 'enhancement' ? 'Submitting enhancement...' :
+                    currentStep === 'clustering' ? 'Processing clusters...' :
+                      'Exporting...'}
               </span>
             </div>
           )}
@@ -347,7 +347,7 @@ export default function Home() {
               )}
 
               {currentStep === 'enhancement' && processingResult && (
-                <EnhancementSelector 
+                <EnhancementSelector
                   processingResult={processingResult}
                   onSelection={handleEnhancementSelection}
                   onBack={handleBack}
@@ -355,15 +355,15 @@ export default function Home() {
               )}
 
               {currentStep === 'clustering' && enhancementSelection && (
-                <ClusteringCanvas 
+                <ClusteringCanvas
                   enhancementSelection={enhancementSelection}
                   onClustering={handleClustering}
                   onBack={handleBack}
                 />
               )}
 
-{currentStep === 'results' && clusteringResult && processingResult && (
-                <ResultsDashboard 
+              {currentStep === 'results' && clusteringResult && processingResult && (
+                <ResultsDashboard
                   clusteringResult={clusteringResult}
                   processingResult={processingResult}
                   onReset={handleReset}
@@ -378,25 +378,25 @@ export default function Home() {
   );
 }
 
-function StepIndicator({ 
-  step, 
-  title, 
-  isActive, 
-  isCompleted 
-}: { 
-  step: number; 
-  title: string; 
-  isActive: boolean; 
-  isCompleted: boolean; 
+function StepIndicator({
+  step,
+  title,
+  isActive,
+  isCompleted
+}: {
+  step: number;
+  title: string;
+  isActive: boolean;
+  isCompleted: boolean;
 }) {
   return (
     <div className="flex items-center">
       <div className={`
         flex items-center justify-center w-8 h-8 rounded-full border-2 
-        ${isCompleted 
-          ? 'bg-green-600 border-green-600 text-white' 
-          : isActive 
-            ? 'bg-blue-600 border-blue-600 text-white' 
+        ${isCompleted
+          ? 'bg-green-600 border-green-600 text-white'
+          : isActive
+            ? 'bg-blue-600 border-blue-600 text-white'
             : 'bg-white border-gray-300 text-gray-500'
         }
       `}>
@@ -408,9 +408,8 @@ function StepIndicator({
           <span className="text-sm font-medium">{step}</span>
         )}
       </div>
-      <span className={`ml-2 text-sm font-medium ${
-        isActive ? 'text-blue-600' : isCompleted ? 'text-green-600' : 'text-gray-500'
-      }`}>
+      <span className={`ml-2 text-sm font-medium ${isActive ? 'text-blue-600' : isCompleted ? 'text-green-600' : 'text-gray-500'
+        }`}>
         {title}
       </span>
     </div>
