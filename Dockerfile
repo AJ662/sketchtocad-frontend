@@ -14,6 +14,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Set API URL at build time - this gets baked into the Next.js bundle
+ENV NEXT_PUBLIC_API_URL=/api/v1
+
 RUN npm run build
 
 # Production image
