@@ -1,4 +1,3 @@
-// /Users/arthurjaspar/Projects/SketchToCad/SketchToCad/frontend/src/app/components/ClusteringCanvas.tsx
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from 'react';
