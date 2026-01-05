@@ -1,0 +1,14 @@
+# Ignore development environment files
+.env
+
+# Ignore node_modules (will be installed fresh in container)
+node_modules
+
+# Ignore build output (will be built fresh in container)
+.next
+
+# Ignore other dev files
+.git
+.gitignore
+README.md
+*.log

@@ -1,7 +1,5 @@
-// In production (GKE), use relative URL. In development, use localhost
-const GATEWAY_URL = process.env.NODE_ENV === 'production'
-  ? ''
-  : (process.env.NEXT_PUBLIC_GATEWAY_URL ?? 'http://localhost:8000');
+// Empty string = relative URLs. Works with GKE Ingress routing /api/* to api-gateway
+const GATEWAY_URL = '';
 
 export const API_CONFIG = {
   workflow: {
