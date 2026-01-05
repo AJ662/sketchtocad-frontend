@@ -18,6 +18,9 @@ COPY . .
 # Frontend will call /api/v1/... which Ingress routes to api-gateway
 ENV NEXT_PUBLIC_GATEWAY_URL=""
 
+# Set NODE_ENV=production for the build so api.config.ts uses relative URLs
+ENV NODE_ENV=production
+
 RUN npm run build
 
 # Production image
