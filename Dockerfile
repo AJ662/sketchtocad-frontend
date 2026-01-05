@@ -14,8 +14,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Set API URL at build time - this gets baked into the Next.js bundle
-ENV NEXT_PUBLIC_API_URL=/api/v1
+# Set Gateway URL at build time - empty string means relative URLs
+# Frontend will call /api/v1/... which Ingress routes to api-gateway
+ENV NEXT_PUBLIC_GATEWAY_URL=""
 
 RUN npm run build
 
